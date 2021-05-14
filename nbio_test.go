@@ -310,16 +310,29 @@ LOOP_RECV:
 
 func TestFuzz(t *testing.T) {
 	wg := sync.WaitGroup{}
+	mux := sync.Mutex{}
+	conns := make(map[*Conn]struct{})
 	for i := 0; i < 100; i++ {
-		wg.Add(1)
 		go func(idx int) {
+			wg.Add(1)
 			defer wg.Done()
 			if idx%2 == 0 {
-				Dial("tcp4", addr)
+				c, err := Dial("tcp4", addr)
+				if err == nil {
+					mux.Lock()
+					conns[c] = struct{}{}
+					mux.Unlock()
+				}
 			} else {
-				Dial("tcp4", addr)
+				c, err := Dial("tcp4", addr)
+				if err == nil {
+					mux.Lock()
+					conns[c] = struct{}{}
+					mux.Unlock()
+				}
 			}
 		}(i)
+		time.Sleep(time.Millisecond)
 	}
 
 	wg.Wait()
