@@ -317,7 +317,7 @@ func TestFuzz(t *testing.T) {
 			if idx%2 == 0 {
 				Dial("tcp4", addr)
 			} else {
-				Dial("tcp6", addr)
+				Dial("tcp4", addr)
 			}
 		}(i)
 	}
@@ -359,7 +359,7 @@ func TestFuzz(t *testing.T) {
 		c.Close()
 		c.Write([]byte{1})
 	} else {
-		log.Panicf("Dial tcp6: %v", err)
+		log.Panicf("Dial tcp4: %v", err)
 	}
 
 	gErr := NewGopher(Config{
