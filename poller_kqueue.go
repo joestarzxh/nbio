@@ -39,17 +39,20 @@ type poller struct {
 func (p *poller) accept(lfd int) error {
 	fd, saddr, err := syscall.Accept(lfd)
 	if err != nil {
+		loging.Error("accept failed 111: %v", err)
 		return err
 	}
 
 	err = syscall.SetNonblock(fd, true)
 	if err != nil {
+		loging.Error("accept failed 222: %v", err)
 		syscall.Close(fd)
 		return nil
 	}
 
 	laddr, err := syscall.Getsockname(fd)
 	if err != nil {
+		loging.Error("accept failed 333: %v", err)
 		syscall.Close(fd)
 		return nil
 	}
