@@ -38,6 +38,7 @@ type poller struct {
 
 func (p *poller) accept(lfd int) error {
 	fd, saddr, err := syscall.Accept(lfd)
+	loging.Info("accept 000: %v, %v, %v", fd, saddr, err)
 	if err != nil {
 		loging.Error("accept failed 111: %v", err)
 		return err
