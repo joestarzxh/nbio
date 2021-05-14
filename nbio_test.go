@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/lesismal/nbio/loging"
 )
 
 var addr = "127.0.0.1:8888"
@@ -19,6 +21,7 @@ var testfile = "test_tmp.file"
 var gopher *Gopher
 
 func init() {
+	loging.SetLevel(loging.LevelAll)
 	if err := ioutil.WriteFile(testfile, make([]byte, 1024*100), 0666); err != nil {
 		log.Panicf("write file failed: %v", err)
 	}
@@ -385,4 +388,5 @@ func TestFuzz(t *testing.T) {
 func TestStop(t *testing.T) {
 	gopher.Stop()
 	os.Remove(testfile)
+	loging.SetLevel(loging.LevelInfo)
 }
