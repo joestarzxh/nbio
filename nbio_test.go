@@ -110,12 +110,12 @@ func TestEcho(t *testing.T) {
 		if n%2 == 0 {
 			c, err = Dial("tcp", addr)
 			if err != nil {
-				log.Panicf("Dial failed: %v", err)
+				log.Panicf("Dial failed 111: %v", err)
 			}
 		} else {
 			c, err = net.Dial("tcp", addr)
 			if err != nil {
-				log.Panicf("net.Dial failed: %v", err)
+				log.Panicf("net.Dial failed 222: %v", err)
 			}
 		}
 		g.AddConn(c)
@@ -182,13 +182,87 @@ func TestTimeout(t *testing.T) {
 	one := func() {
 		c, err := DialTimeout("tcp", addr, time.Second)
 		if err != nil {
-			log.Panicf("Dial failed: %v", err)
+			log.Panicf("Dial failed 333: %v", err)
 		}
 		g.AddConn(c)
 	}
 	one()
 
 	<-done
+}
+
+func TestFuzz(t *testing.T) {
+	wg := sync.WaitGroup{}
+	mux := sync.Mutex{}
+	conns := make(map[*Conn]struct{})
+	for i := 0; i < 100; i++ {
+		go func(idx int) {
+			wg.Add(1)
+			defer wg.Done()
+			if idx%2 == 0 {
+				c, err := Dial("tcp4", addr)
+				if err == nil {
+					mux.Lock()
+					conns[c] = struct{}{}
+					mux.Unlock()
+				}
+			} else {
+				c, err := Dial("tcp4", addr)
+				if err == nil {
+					mux.Lock()
+					conns[c] = struct{}{}
+					mux.Unlock()
+				}
+			}
+		}(i)
+		time.Sleep(time.Millisecond)
+	}
+
+	wg.Wait()
+
+	readed := 0
+	wg2 := sync.WaitGroup{}
+	wg2.Add(1)
+	g := NewGopher(Config{NPoller: 1})
+	g.OnData(func(c *Conn, data []byte) {
+		readed += len(data)
+		if readed == 4 {
+			wg2.Done()
+		}
+	})
+	err := g.Start()
+	if err != nil {
+		log.Panicf("Start failed: %v", err)
+	}
+
+	c, err := Dial("tcp", addr)
+	if err == nil {
+		log.Printf("Dial tcp4: %v, %v, %v", c.LocalAddr(), c.RemoteAddr(), err)
+		g.AddConn(c)
+		c.SetWriteDeadline(time.Now().Add(time.Second))
+		c.Write([]byte{1})
+
+		time.Sleep(time.Second / 10)
+
+		bs := [][]byte{}
+		bs = append(bs, []byte{2})
+		bs = append(bs, []byte{3})
+		bs = append(bs, []byte{4})
+		c.Writev(bs)
+
+		time.Sleep(time.Second / 10)
+
+		c.Close()
+		c.Write([]byte{1})
+	} else {
+		log.Panicf("Dial tcp4: %v", err)
+	}
+
+	gErr := NewGopher(Config{
+		Network: "tcp4",
+		Addrs:   []string{"127.0.0.1:8889", "127.0.0.1:8889"},
+	})
+	gErr.Start()
 }
 
 func TestHeapTimer(t *testing.T) {
@@ -309,80 +383,6 @@ LOOP_RECV:
 
 	it := &htimer{parent: g, index: -1}
 	it.Stop()
-}
-
-func TestFuzz(t *testing.T) {
-	wg := sync.WaitGroup{}
-	mux := sync.Mutex{}
-	conns := make(map[*Conn]struct{})
-	for i := 0; i < 100; i++ {
-		go func(idx int) {
-			wg.Add(1)
-			defer wg.Done()
-			if idx%2 == 0 {
-				c, err := Dial("tcp4", addr)
-				if err == nil {
-					mux.Lock()
-					conns[c] = struct{}{}
-					mux.Unlock()
-				}
-			} else {
-				c, err := Dial("tcp4", addr)
-				if err == nil {
-					mux.Lock()
-					conns[c] = struct{}{}
-					mux.Unlock()
-				}
-			}
-		}(i)
-		time.Sleep(time.Millisecond)
-	}
-
-	wg.Wait()
-
-	readed := 0
-	wg2 := sync.WaitGroup{}
-	wg2.Add(1)
-	g := NewGopher(Config{NPoller: 1})
-	g.OnData(func(c *Conn, data []byte) {
-		readed += len(data)
-		if readed == 4 {
-			wg2.Done()
-		}
-	})
-	err := g.Start()
-	if err != nil {
-		log.Panicf("Start failed: %v", err)
-	}
-
-	c, err := Dial("tcp", addr)
-	if err == nil {
-		log.Printf("Dial tcp4: %v, %v, %v", c.LocalAddr(), c.RemoteAddr(), err)
-		g.AddConn(c)
-		c.SetWriteDeadline(time.Now().Add(time.Second))
-		c.Write([]byte{1})
-
-		time.Sleep(time.Second / 10)
-
-		bs := [][]byte{}
-		bs = append(bs, []byte{2})
-		bs = append(bs, []byte{3})
-		bs = append(bs, []byte{4})
-		c.Writev(bs)
-
-		time.Sleep(time.Second / 10)
-
-		c.Close()
-		c.Write([]byte{1})
-	} else {
-		log.Panicf("Dial tcp4: %v", err)
-	}
-
-	gErr := NewGopher(Config{
-		Network: "tcp4",
-		Addrs:   []string{"127.0.0.1:8889", "127.0.0.1:8889"},
-	})
-	gErr.Start()
 }
 
 func TestStop(t *testing.T) {
