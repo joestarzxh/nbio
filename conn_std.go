@@ -9,8 +9,9 @@ package nbio
 import (
 	"errors"
 	"net"
-	"sync"
 	"time"
+
+	"github.com/sasha-s/go-deadlock"
 )
 
 // Conn wraps net.Conn
@@ -19,7 +20,7 @@ type Conn struct {
 
 	hash int
 
-	mux sync.Mutex
+	mux deadlock.Mutex
 
 	conn net.Conn
 

@@ -9,16 +9,16 @@ package nbio
 import (
 	"errors"
 	"net"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/lesismal/nbio/mempool"
+	"github.com/sasha-s/go-deadlock"
 )
 
 // Conn implements net.Conn
 type Conn struct {
-	mux sync.Mutex
+	mux deadlock.Mutex
 
 	g *Gopher
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/lesismal/nbio/loging"
+	"github.com/sasha-s/go-deadlock"
 )
 
 const (
@@ -71,8 +72,8 @@ type Config struct {
 // Gopher is a manager of poller
 type Gopher struct {
 	sync.WaitGroup
-	mux  sync.Mutex
-	tmux sync.Mutex
+	mux  deadlock.Mutex
+	tmux deadlock.Mutex
 
 	Name string
 
