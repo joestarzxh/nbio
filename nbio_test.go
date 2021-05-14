@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-var addr = "localhost:8888"
+var addr = "127.0.0.1:8888"
 var testfile = "test_tmp.file"
 var gopher *Gopher
 
@@ -364,7 +364,7 @@ func TestFuzz(t *testing.T) {
 
 	gErr := NewGopher(Config{
 		Network: "tcp4",
-		Addrs:   []string{"localhost:8889", "localhost:8889"},
+		Addrs:   []string{"127.0.0.1:8889", "127.0.0.1:8889"},
 	})
 	gErr.Start()
 }
