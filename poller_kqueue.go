@@ -148,6 +148,7 @@ func (p *poller) acceptorLoop() {
 	p.shutdown = false
 	for !p.shutdown {
 		conn, err := p.listener.Accept()
+		loging.Info("--- accept: %v, %v", conn, err)
 		if err == nil {
 			c, err := NBConn(conn)
 			if err != nil {
