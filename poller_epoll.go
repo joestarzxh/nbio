@@ -34,35 +34,25 @@ type poller struct {
 
 	shutdown bool
 
+	listener   net.Listener
 	isListener bool
 
 	ReadBuffer []byte
 
 	pollType string
-
-	listener net.Listener
 }
 
-func (p *poller) accept(lfd int) error {
-	fd, saddr, err := syscall.Accept(lfd)
+func (p *poller) accept() error {
+	conn, err := p.listener.Accept()
 	if err != nil {
 		return err
 	}
 
-	err = syscall.SetNonblock(fd, true)
+	c, err := NBConn(conn)
 	if err != nil {
-		syscall.Close(fd)
 		return err
 	}
-
-	laddr, err := syscall.Getsockname(fd)
-	if err != nil {
-		syscall.Close(fd)
-		return err
-	}
-
-	c := newConn(int(fd), sockaddrToAddr(laddr), sockaddrToAddr(saddr))
-	o := p.g.pollers[int(fd)%len(p.g.pollers)]
+	o := p.g.pollers[int(c.fd)%len(p.g.pollers)]
 	o.addConn(c)
 
 	return err
@@ -118,41 +108,16 @@ func (p *poller) acceptorLoop() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	fd := 0
-	msec := -1
-	events := make([]syscall.EpollEvent, 1024)
-
 	p.shutdown = false
-
 	for !p.shutdown {
-		n, err := syscall.EpollWait(p.epfd, events, msec)
-		if err != nil && err != syscall.EINTR {
-			return
-		}
-
-		if n <= 0 {
-			msec = -1
-			// runtime.Gosched()
-			continue
-		}
-		msec = 20
-
-		for i := 0; i < n; i++ {
-			fd = int(events[i].Fd)
-
-			switch fd {
-			case p.evtfd:
-			default:
-				err = p.accept(fd)
-				if err != nil {
-					if err == syscall.EAGAIN {
-						loging.Error("Poller[%v_%v_%v] Accept failed: EAGAIN, retrying...", p.g.Name, p.pollType, p.index)
-						time.Sleep(time.Second / 20)
-					} else {
-						loging.Error("Poller[%v_%v_%v] Accept failed: %v, exit...", p.g.Name, p.pollType, p.index, err)
-						break
-					}
-				}
+		err := p.accept()
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Temporary() {
+				loging.Error("Poller[%v_%v_%v] Accept failed: temporary error, retrying...", p.g.Name, p.pollType, p.index)
+				time.Sleep(time.Second / 20)
+			} else {
+				loging.Error("Poller[%v_%v_%v] Accept failed: %v, exit...", p.g.Name, p.pollType, p.index, err)
+				break
 			}
 		}
 	}
@@ -197,8 +162,12 @@ func (p *poller) readWriteLoop() {
 func (p *poller) stop() {
 	loging.Debug("Poller[%v_%v_%v] stop...", p.g.Name, p.pollType, p.index)
 	p.shutdown = true
-	n := uint64(1)
-	syscall.Write(p.evtfd, (*(*[8]byte)(unsafe.Pointer(&n)))[:])
+	if p.listener != nil {
+		p.listener.Close()
+	} else {
+		n := uint64(1)
+		syscall.Write(p.evtfd, (*(*[8]byte)(unsafe.Pointer(&n)))[:])
+	}
 }
 
 func (p *poller) addRead(fd int) error {
@@ -257,6 +226,28 @@ func (p *poller) readWrite(ev *syscall.EpollEvent) {
 }
 
 func newPoller(g *Gopher, isListener bool, index int) (*poller, error) {
+	if isListener {
+		if len(g.addrs) == 0 {
+			panic("invalid listener num")
+		}
+
+		addr := g.addrs[index%len(g.listeners)]
+		ln, err := net.Listen(g.network, addr)
+		if err != nil {
+			return nil, err
+		}
+
+		p := &poller{
+			g:          g,
+			index:      index,
+			listener:   ln,
+			isListener: isListener,
+			pollType:   "LISTENER",
+		}
+
+		return p, nil
+	}
+
 	fd, err := syscall.EpollCreate1(0)
 	if err != nil {
 		return nil, err
@@ -279,35 +270,13 @@ func newPoller(g *Gopher, isListener bool, index int) (*poller, error) {
 		return nil, err
 	}
 
-	if isListener {
-		if len(g.lfds) > 0 {
-			for i, lfd := range g.lfds {
-				if i%len(g.listeners) == index {
-					// EPOLLEXCLUSIVE := (1 << 28)
-					if err := syscall.EpollCtl(fd, syscall.EPOLL_CTL_ADD, lfd, &syscall.EpollEvent{Fd: int32(lfd), Events: syscall.EPOLLIN | (1 << 28)}); err != nil {
-						syscall.Close(fd)
-						syscall.Close(int(r0))
-						return nil, err
-					}
-				}
-			}
-		} else {
-			panic("invalid listener num")
-		}
-	}
-
 	p := &poller{
 		g:          g,
 		epfd:       fd,
 		evtfd:      int(r0),
 		index:      index,
 		isListener: isListener,
-	}
-
-	if isListener {
-		p.pollType = "LISTENER"
-	} else {
-		p.pollType = "POLLER"
+		pollType:   "POLLER",
 	}
 
 	return p, nil

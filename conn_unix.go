@@ -9,17 +9,16 @@ package nbio
 import (
 	"errors"
 	"net"
+	"sync"
 	"syscall"
 	"time"
 
-	"github.com/lesismal/nbio/loging"
 	"github.com/lesismal/nbio/mempool"
-	"github.com/sasha-s/go-deadlock"
 )
 
 // Conn implements net.Conn
 type Conn struct {
-	mux deadlock.Mutex
+	mux sync.Mutex
 
 	g *Gopher
 
@@ -531,7 +530,6 @@ func newConn(fd int, lAddr, rAddr net.Addr) *Conn {
 // NBConn converts net.Conn to *Conn
 func NBConn(conn net.Conn) (*Conn, error) {
 	if conn == nil {
-		loging.Error("NBConn failed 111")
 		return nil, errors.New("invalid conn: nil")
 	}
 	c, ok := conn.(*Conn)
@@ -539,7 +537,6 @@ func NBConn(conn net.Conn) (*Conn, error) {
 		var err error
 		c, err = dupStdConn(conn)
 		if err != nil {
-			loging.Error("NBConn failed 222: %v", err)
 			return nil, err
 		}
 	}

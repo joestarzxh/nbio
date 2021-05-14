@@ -9,14 +9,14 @@ package nbio
 import (
 	"net"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/lesismal/nbio/loging"
-	"github.com/sasha-s/go-deadlock"
 )
 
 type poller struct {
-	mux deadlock.Mutex
+	mux sync.Mutex
 
 	g *Gopher
 
