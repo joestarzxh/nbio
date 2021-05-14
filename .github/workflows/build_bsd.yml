@@ -32,6 +32,7 @@ jobs:
           printf "$(go version)\n"
           printf "\n\ngo environment:\n\n"
           go get -u github.com/lesismal/nbio/...
+          go get -u github.com/sasha-s/go-deadlock
           ulimit -n 30000
           go env
           echo "::set-output name=short_sha::$(git rev-parse --short HEAD)"
