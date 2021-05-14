@@ -7,12 +7,15 @@ package nbio
 import (
 	"net"
 	"time"
+
+	"github.com/lesismal/nbio/loging"
 )
 
 // Dial wraps net.Dial
 func Dial(network string, address string) (*Conn, error) {
 	conn, err := net.Dial(network, address)
 	if err != nil {
+		loging.Error("Dial failed: %v", err)
 		return nil, err
 	}
 	return NBConn(conn)
