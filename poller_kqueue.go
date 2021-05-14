@@ -215,7 +215,7 @@ func newPoller(g *Gopher, isListener bool, index int) (*poller, error) {
 			panic("invalid listener num")
 		}
 
-		addr := g.addrs[i%len(g.listeners)]
+		addr := g.addrs[index%len(g.listeners)]
 		ln, err := net.Listen(g.network, addr)
 		if err != nil {
 			return nil, err
