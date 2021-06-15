@@ -25,6 +25,25 @@ const (
 	DefaultMinConnCacheSize = 1024 * 2
 )
 
+const (
+	// EpollModLT
+	EpollModLT = 0
+
+	// EpollModET
+	EpollModET = 1
+)
+
+const (
+	// PollerEventRead
+	PollerEventRead = 1
+
+	// PollerEventWrite
+	PollerEventWrite = 2
+
+	// PollerEventError
+	PollerEventError = 3
+)
+
 var (
 	// MaxOpenFiles .
 	MaxOpenFiles = 1024 * 1024
@@ -69,6 +88,8 @@ type Config struct {
 
 	// LockPoller represents poller's goroutine to lock thread or not, it's set to false by default.
 	LockPoller bool
+
+	EpollMod int
 }
 
 // Gopher is a manager of poller
@@ -82,6 +103,7 @@ type Gopher struct {
 	network            string
 	addrs              []string
 	pollerNum          int
+	pollerMod          int
 	backlogSize        int
 	readBufferSize     int
 	maxWriteBufferSize int
@@ -100,6 +122,7 @@ type Gopher struct {
 	onOpen            func(c *Conn)
 	onClose           func(c *Conn, err error)
 	onData            func(c *Conn, data []byte)
+	onEvent           func(c *Conn, event int)
 	onReadBufferAlloc func(c *Conn) []byte
 	onReadBufferFree  func(c *Conn, buffer []byte)
 	onWriteBufferFree func(c *Conn, buffer []byte)

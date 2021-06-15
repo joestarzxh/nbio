@@ -15,6 +15,15 @@ import (
 	"github.com/lesismal/nbio/logging"
 )
 
+// OnEvent registers callback for poller events
+func (g *Gopher) OnEvent(h func(c *Conn, event int)) {
+	if h == nil {
+		panic("invalid nil handler")
+	}
+	g.onEvent = h
+	g.pollerMod = EpollModET
+}
+
 // Start init and start pollers
 func (g *Gopher) Start() error {
 	var err error
@@ -95,6 +104,7 @@ func NewGopher(conf Config) *Gopher {
 		network:            conf.Network,
 		addrs:              conf.Addrs,
 		pollerNum:          conf.NPoller,
+		pollerMod:          conf.EpollMod,
 		backlogSize:        conf.Backlog,
 		readBufferSize:     conf.ReadBufferSize,
 		maxWriteBufferSize: conf.MaxWriteBufferSize,

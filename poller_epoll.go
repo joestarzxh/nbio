@@ -17,11 +17,16 @@ import (
 	"github.com/lesismal/nbio/logging"
 )
 
-const (
-	epoollEventsRead      = syscall.EPOLLPRI | syscall.EPOLLIN
-	epoollEventsWrite     = syscall.EPOLLOUT
-	epoollEventsReadWrite = syscall.EPOLLPRI | syscall.EPOLLIN | syscall.EPOLLOUT
-	epoollEventsError     = syscall.EPOLLERR | syscall.EPOLLHUP | syscall.EPOLLRDHUP
+var (
+	epoollEventsRead      uint32 = syscall.EPOLLPRI | syscall.EPOLLIN
+	epoollEventsWrite     uint32 = syscall.EPOLLOUT
+	epoollEventsReadWrite uint32 = syscall.EPOLLPRI | syscall.EPOLLIN | syscall.EPOLLOUT
+	epoollEventsError     uint32 = syscall.EPOLLERR | syscall.EPOLLHUP | syscall.EPOLLRDHUP
+
+	epoollEventsReadET      uint32 = syscall.EPOLLPRI | syscall.EPOLLIN | 0x80000000
+	epoollEventsWriteET     uint32 = syscall.EPOLLOUT | 0x80000000
+	epoollEventsReadWriteET uint32 = syscall.EPOLLPRI | syscall.EPOLLIN | syscall.EPOLLOUT | 0x80000000
+	epoollEventsErrorET     uint32 = syscall.EPOLLERR | syscall.EPOLLHUP | syscall.EPOLLRDHUP | 0x80000000
 )
 
 type poller struct {
@@ -130,6 +135,31 @@ func (p *poller) readWriteLoop() {
 
 	p.shutdown = false
 
+	readWrite := p.readWrite
+	onEvent := p.g.onEvent
+	if onEvent != nil {
+		readWrite = func(ev *syscall.EpollEvent) {
+			fd := int(ev.Fd)
+			c := p.getConn(fd)
+			if c != nil {
+				if ev.Events&epoollEventsError != 0 {
+					onEvent(c, PollerEventError)
+				}
+
+				if ev.Events&epoollEventsWrite != 0 {
+					onEvent(c, PollerEventWrite)
+				}
+
+				if ev.Events&epoollEventsRead != 0 {
+					onEvent(c, PollerEventRead)
+				}
+			} else {
+				syscall.Close(fd)
+				p.deleteEvent(fd)
+			}
+		}
+	}
+
 	for !p.shutdown {
 		n, err := syscall.EpollWait(p.epfd, events, msec)
 		if err != nil && err != syscall.EINTR {
@@ -148,7 +178,7 @@ func (p *poller) readWriteLoop() {
 			switch fd {
 			case p.evtfd:
 			default:
-				p.readWrite(&events[i])
+				readWrite(&events[i])
 			}
 		}
 	}
@@ -166,7 +196,10 @@ func (p *poller) stop() {
 }
 
 func (p *poller) addRead(fd int) error {
-	return syscall.EpollCtl(p.epfd, syscall.EPOLL_CTL_ADD, fd, &syscall.EpollEvent{Fd: int32(fd), Events: epoollEventsRead})
+	if p.g.pollerMod == EpollModLT {
+		return syscall.EpollCtl(p.epfd, syscall.EPOLL_CTL_ADD, fd, &syscall.EpollEvent{Fd: int32(fd), Events: epoollEventsRead})
+	}
+	return syscall.EpollCtl(p.epfd, syscall.EPOLL_CTL_ADD, fd, &syscall.EpollEvent{Fd: int32(fd), Events: epoollEventsReadET})
 }
 
 // func (p *poller) addWrite(fd int) error {
@@ -174,7 +207,10 @@ func (p *poller) addRead(fd int) error {
 // }
 
 func (p *poller) modWrite(fd int) error {
-	return syscall.EpollCtl(p.epfd, syscall.EPOLL_CTL_MOD, fd, &syscall.EpollEvent{Fd: int32(fd), Events: epoollEventsReadWrite})
+	if p.g.pollerMod == EpollModLT {
+		return syscall.EpollCtl(p.epfd, syscall.EPOLL_CTL_MOD, fd, &syscall.EpollEvent{Fd: int32(fd), Events: epoollEventsReadWrite})
+	}
+	return syscall.EpollCtl(p.epfd, syscall.EPOLL_CTL_MOD, fd, &syscall.EpollEvent{Fd: int32(fd), Events: epoollEventsReadWriteET})
 }
 
 func (p *poller) deleteEvent(fd int) error {
@@ -195,23 +231,46 @@ func (p *poller) readWrite(ev *syscall.EpollEvent) {
 		}
 
 		if ev.Events&epoollEventsRead != 0 {
-			for i := 0; i < 3; i++ {
-				buffer := p.g.borrow(c)
-				n, err := c.Read(buffer)
-				if n > 0 {
-					p.g.onData(c, buffer[:n])
+			if p.g.pollerMod == EpollModLT {
+				for i := 0; i < 3; i++ {
+					buffer := p.g.borrow(c)
+					n, err := c.Read(buffer)
+					if n > 0 {
+						p.g.onData(c, buffer[:n])
+					}
+					p.g.payback(c, buffer)
+					if err == syscall.EINTR {
+						continue
+					}
+					if err == syscall.EAGAIN {
+						return
+					}
+					if err != nil || n == 0 {
+						c.closeWithError(err)
+					}
+					if n < len(buffer) {
+						return
+					}
 				}
-				p.g.payback(c, buffer)
-				if err == syscall.EINTR {
-					continue
-				}
-				if err == syscall.EAGAIN {
+			} else {
+				for {
+					buffer := p.g.borrow(c)
+					n, err := c.Read(buffer)
+					if n > 0 {
+						p.g.onData(c, buffer[:n])
+					}
+					p.g.payback(c, buffer)
+					if err == syscall.EINTR {
+						continue
+					}
+					if err == syscall.EAGAIN {
+						return
+					}
+					if err != nil || n == 0 {
+						c.closeWithError(err)
+					}
 					return
 				}
-				if err != nil || n == 0 {
-					c.closeWithError(err)
-				}
-				return
 			}
 		}
 	} else {

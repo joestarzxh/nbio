@@ -44,6 +44,11 @@ type Conn struct {
 	chWaitWrite chan struct{}
 }
 
+// Hash returns fd
+func (c *Conn) Fd() int {
+	return c.fd
+}
+
 // Hash returns a hash code
 func (c *Conn) Hash() int {
 	return c.fd
@@ -343,6 +348,10 @@ func (c *Conn) write(b []byte) (int, error) {
 	c.writeBuffers = append(c.writeBuffers, b)
 
 	return len(b), nil
+}
+
+func (c *Conn) Flush() error {
+	return c.flush()
 }
 
 func (c *Conn) flush() error {

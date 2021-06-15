@@ -178,6 +178,31 @@ func (p *poller) readWriteLoop() {
 		defer runtime.UnlockOSThread()
 	}
 
+	readWrite := p.readWrite
+	onEvent := p.g.onEvent
+	if onEvent != nil {
+		readWrite = func(ev *syscall.EpollEvent) {
+			fd := int(ev.Fd)
+			c := p.getConn(fd)
+			if c != nil {
+				if ev.Events&epoollEventsError != 0 {
+					onEvent(c, PollerEventError)
+				}
+
+				if ev.Events&epoollEventsWrite != 0 {
+					onEvent(c, PollerEventWrite)
+				}
+
+				if ev.Events&epoollEventsRead != 0 {
+					onEvent(c, PollerEventRead)
+				}
+			} else {
+				syscall.Close(fd)
+				p.deleteEvent(fd)
+			}
+		}
+	}
+
 	var events = make([]syscall.Kevent_t, 1024)
 	var changes []syscall.Kevent_t
 
@@ -196,7 +221,7 @@ func (p *poller) readWriteLoop() {
 			switch int(events[i].Ident) {
 			case p.evtfd:
 			default:
-				p.readWrite(&events[i])
+				readWrite(&events[i])
 			}
 		}
 	}
