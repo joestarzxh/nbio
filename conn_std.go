@@ -7,6 +7,7 @@
 package nbio
 
 import (
+	"bytes"
 	"errors"
 	"net"
 	"sync"
@@ -27,6 +28,7 @@ type Conn struct {
 	closeErr error
 
 	ReadBuffer []byte
+	Buffer     *bytes.Buffer
 
 	// user session
 	session interface{}
@@ -39,10 +41,21 @@ func (c *Conn) Hash() int {
 
 // Read wraps net.Conn.Read
 func (c *Conn) Read(b []byte) (int, error) {
-	c.g.beforeRead(c)
-	nread, err := c.conn.Read(b)
-	if c.closeErr == nil {
-		c.closeErr = err
+	if c.closeErr != nil {
+		return 0, c.closeErr
+	}
+	var nread int
+	var err error
+	if c.g.onEvent == nil {
+		c.g.beforeRead(c)
+		nread, err = c.conn.Read(b)
+		if err != nil && c.closeErr == nil {
+			c.closeErr = err
+		}
+	} else {
+		c.mux.Lock()
+		nread, _ = c.Buffer.Read(b)
+		c.mux.Unlock()
 	}
 	return nread, err
 }
@@ -61,6 +74,10 @@ func (c *Conn) Write(b []byte) (int, error) {
 	c.g.onWriteBufferFree(c, b)
 
 	return nwrite, err
+}
+
+func (c *Conn) Flush() error {
+	return nil
 }
 
 // Writev wraps buffers.WriteTo/syscall.Writev

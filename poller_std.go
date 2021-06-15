@@ -7,6 +7,7 @@
 package nbio
 
 import (
+	"bytes"
 	"net"
 	"runtime"
 	"sync"
@@ -46,16 +47,38 @@ func (p *poller) accept() error {
 }
 
 func (p *poller) readConn(c *Conn) {
-	for {
-		buffer := p.g.borrow(c)
-		n, err := c.Read(buffer)
-		if n > 0 {
-			p.g.onData(c, buffer[:n])
+	if p.g.onEvent == nil {
+		for {
+			buffer := p.g.borrow(c)
+			n, err := c.Read(buffer)
+			if n > 0 {
+				p.g.onData(c, buffer[:n])
+			}
+			p.g.payback(c, buffer)
+			if err != nil {
+				c.Close()
+				return
+			}
 		}
-		p.g.payback(c, buffer)
-		if err != nil {
-			c.Close()
-			return
+	} else {
+		if c.Buffer == nil {
+			c.Buffer = bytes.NewBuffer(make([]byte, 4096))
+		}
+		for {
+			buffer := p.g.borrow(c)
+			n, err := c.conn.Read(buffer)
+			if n > 0 {
+				c.mux.Lock()
+				c.Buffer.Write(buffer)
+				c.mux.Unlock()
+				p.g.onEvent(c, PollerEventRead)
+			}
+			p.g.payback(c, buffer)
+			if err != nil {
+				p.g.onEvent(c, PollerEventError)
+				c.CloseWithError(err)
+				return
+			}
 		}
 	}
 }
