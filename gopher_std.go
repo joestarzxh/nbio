@@ -7,6 +7,7 @@
 package nbio
 
 import (
+	"net"
 	"runtime"
 	"strings"
 	"time"
@@ -54,8 +55,9 @@ func (g *Gopher) Start() error {
 		go l.start()
 	}
 
-	g.Add(1)
+	g.Add(2)
 	go g.timerLoop()
+	go g.acceptLoop()
 
 	if len(g.addrs) == 0 {
 		logging.Info("Gopher[%v] start", g.Name)
@@ -95,7 +97,8 @@ func NewGopher(conf Config) *Gopher {
 		pollers:            make([]*poller, conf.NPoller),
 		connsStd:           map[*Conn]struct{}{},
 		trigger:            time.NewTimer(timeForever),
-		chTimer:            make(chan struct{}),
+		chClose:            make(chan struct{}),
+		chAccept:           make(chan net.Conn, 1024*16),
 	}
 
 	g.initHandlers()

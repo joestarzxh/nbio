@@ -7,6 +7,7 @@ package nbio
 import (
 	"container/heap"
 	"net"
+	"runtime"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -108,9 +109,10 @@ type Gopher struct {
 	beforeWrite       func(c *Conn)
 	onStop            func()
 
-	timers  timerHeap
-	trigger *time.Timer
-	chTimer chan struct{}
+	timers   timerHeap
+	trigger  *time.Timer
+	chClose  chan struct{}
+	chAccept chan net.Conn
 }
 
 // Stop pollers
@@ -118,7 +120,7 @@ func (g *Gopher) Stop() {
 	g.onStop()
 
 	g.trigger.Stop()
-	close(g.chTimer)
+	close(g.chClose)
 
 	for _, l := range g.listeners {
 		l.stop()
@@ -148,9 +150,20 @@ func (g *Gopher) Stop() {
 }
 
 // AddConn adds conn to a poller
+func (g *Gopher) addConn(conn net.Conn) (*Conn, error) {
+	select {
+	case g.chAccept <- conn:
+	case <-g.chClose:
+		return nil, errClosed
+	default:
+	}
+	return nil, errAcceptorBusy
+}
+
 func (g *Gopher) AddConn(conn net.Conn) (*Conn, error) {
 	c, err := NBConn(conn)
 	if err != nil {
+		conn.Close()
 		return nil, err
 	}
 	g.pollers[uint32(c.Hash())%uint32(g.pollerNum)].addConn(c)
@@ -313,6 +326,22 @@ func (g *Gopher) resetTimer(it *htimer) {
 	}
 }
 
+func (g *Gopher) acceptLoop() {
+	if g.lockListener {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+	}
+	defer g.Done()
+	for {
+		select {
+		case conn := <-g.chAccept:
+			g.AddConn(conn)
+		case <-g.chClose:
+			return
+		}
+	}
+}
+
 func (g *Gopher) timerLoop() {
 	defer g.Done()
 	logging.Debug("Gopher[%v] timer start", g.Name)
@@ -348,7 +377,7 @@ func (g *Gopher) timerLoop() {
 					break
 				}
 			}
-		case <-g.chTimer:
+		case <-g.chClose:
 			return
 		}
 	}

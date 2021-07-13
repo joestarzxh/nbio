@@ -153,13 +153,14 @@ func (p *poller) acceptorLoop() {
 	for !p.shutdown {
 		conn, err := p.listener.Accept()
 		if err == nil {
-			c, err := NBConn(conn)
-			if err != nil {
-				conn.Close()
-				continue
-			}
-			o := p.g.pollers[int(c.fd)%len(p.g.pollers)]
-			o.addConn(c)
+			// c, err := NBConn(conn)
+			// if err != nil {
+			// 	conn.Close()
+			// 	continue
+			// }
+			// o := p.g.pollers[int(c.fd)%len(p.g.pollers)]
+			// o.addConn(c)
+			p.g.addConn(conn)
 		} else {
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
 				logging.Error("Poller[%v_%v_%v] Accept failed: temporary error, retrying...", p.g.Name, p.pollType, p.index)

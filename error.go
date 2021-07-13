@@ -15,4 +15,5 @@ var (
 	errTimeout      = errors.New("timeout")
 	errReadTimeout  = errors.New("read timeout")
 	errWriteTimeout = errors.New("write timeout")
+	errAcceptorBusy = errors.New("acceptor busy")
 )
