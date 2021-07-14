@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -25,6 +26,8 @@ const (
 )
 
 type poller struct {
+	mux sync.Mutex
+
 	g *Gopher
 
 	epfd  int
@@ -40,6 +43,8 @@ type poller struct {
 	ReadBuffer []byte
 
 	pollType string
+
+	closeWaiting map[*Conn]error
 }
 
 func (p *poller) addConn(c *Conn) {
@@ -70,6 +75,13 @@ func (p *poller) deleteConn(c *Conn) {
 		p.deleteEvent(fd)
 	}
 	p.g.onClose(c, c.closeErr)
+}
+
+func (p *poller) preClose(c *Conn, err error) {
+	p.mux.Lock()
+	p.closeWaiting[c] = err
+	p.mux.Unlock()
+	p.trigger()
 }
 
 func (p *poller) start() {
@@ -127,8 +139,9 @@ func (p *poller) readWriteLoop() {
 	fd := 0
 	msec := -1
 	events := make([]syscall.EpollEvent, 1024)
-
 	p.shutdown = false
+	closeWaiting := p.closeWaiting
+	evtBuf := make([]byte, 8)
 
 	for !p.shutdown {
 		n, err := syscall.EpollWait(p.epfd, events, msec)
@@ -143,10 +156,23 @@ func (p *poller) readWriteLoop() {
 		}
 		msec = 20
 
+		p.mux.Lock()
+		if len(p.closeWaiting) > 0 {
+			closeWaiting = p.closeWaiting
+			p.closeWaiting = map[*Conn]error{}
+		}
+		p.mux.Unlock()
+
+		for c, err := range closeWaiting {
+			c.closeWithErrorWithoutLock(err)
+		}
+		closeWaiting = nil
+
 		for i := 0; i < n; i++ {
 			fd = int(events[i].Fd)
 			switch fd {
 			case p.evtfd:
+				syscall.Read(p.evtfd, evtBuf)
 			default:
 				p.readWrite(&events[i])
 			}
@@ -163,6 +189,11 @@ func (p *poller) stop() {
 		n := uint64(1)
 		syscall.Write(p.evtfd, (*(*[8]byte)(unsafe.Pointer(&n)))[:])
 	}
+}
+
+func (p *poller) trigger() {
+	n := uint64(1)
+	syscall.Write(p.evtfd, (*(*[8]byte)(unsafe.Pointer(&n)))[:])
 }
 
 func (p *poller) addRead(fd int) error {
@@ -266,12 +297,13 @@ func newPoller(g *Gopher, isListener bool, index int) (*poller, error) {
 	}
 
 	p := &poller{
-		g:          g,
-		epfd:       fd,
-		evtfd:      int(r0),
-		index:      index,
-		isListener: isListener,
-		pollType:   "POLLER",
+		g:            g,
+		epfd:         fd,
+		evtfd:        int(r0),
+		index:        index,
+		isListener:   isListener,
+		pollType:     "POLLER",
+		closeWaiting: map[*Conn]error{},
 	}
 
 	return p, nil

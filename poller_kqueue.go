@@ -37,6 +37,8 @@ type poller struct {
 	pollType string
 
 	eventList []syscall.Kevent_t
+
+	closeWaiting map[*Conn]error
 }
 
 func (p *poller) addConn(c *Conn) {
@@ -84,6 +86,13 @@ func (p *poller) modWrite(fd int) {
 func (p *poller) deleteEvent(fd int) {
 	p.mux.Lock()
 	p.eventList = append(p.eventList, syscall.Kevent_t{Ident: uint64(fd), Flags: syscall.EV_DELETE, Filter: syscall.EVFILT_READ})
+	p.mux.Unlock()
+	p.trigger()
+}
+
+func (p *poller) preClose(c *Conn, err error) {
+	p.mux.Lock()
+	p.closeWaiting[c] = err
 	p.mux.Unlock()
 	p.trigger()
 }
@@ -180,13 +189,24 @@ func (p *poller) readWriteLoop() {
 
 	var events = make([]syscall.Kevent_t, 1024)
 	var changes []syscall.Kevent_t
+	closeWaiting = p.closeWaiting
 
 	p.shutdown = false
 	for !p.shutdown {
 		p.mux.Lock()
 		changes = p.eventList
 		p.eventList = nil
+		if len(p.closeWaiting) > 0 {
+			closeWaiting = p.closeWaiting
+			p.closeWaiting = map[*Conn]error{}
+		}
 		p.mux.Unlock()
+
+		for c, err := range closeWaiting {
+			c.closeWithErrorWithoutLock(err)
+		}
+		closeWaiting = nil
+
 		n, err := syscall.Kevent(p.kfd, changes, events, nil)
 		if err != nil && err != syscall.EINTR {
 			return
@@ -250,11 +270,12 @@ func newPoller(g *Gopher, isListener bool, index int) (*poller, error) {
 	}
 
 	p := &poller{
-		g:          g,
-		kfd:        fd,
-		index:      index,
-		isListener: isListener,
-		pollType:   "POLLER",
+		g:            g,
+		kfd:          fd,
+		index:        index,
+		isListener:   isListener,
+		pollType:     "POLLER",
+		closeWaiting: map[*Conn]error{},
 	}
 
 	return p, nil

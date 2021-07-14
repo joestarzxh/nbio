@@ -142,12 +142,24 @@ func (c *Conn) Writev(in [][]byte) (int, error) {
 
 // Close implements Close
 func (c *Conn) Close() error {
-	return c.closeWithError(nil)
+	return c.CloseWithError(nil)
 }
 
 // CloseWithError .
 func (c *Conn) CloseWithError(err error) error {
-	return c.closeWithError(err)
+	c.mux.Lock()
+	if !c.closed {
+		c.closed = true
+		c.mux.Unlock()
+		if c.g != nil {
+			c.g.pollers[c.Hash()%len(c.g.pollers)].preClose(c, err)
+			return nil
+		}
+		return c.closeWithErrorWithoutLock(err)
+	}
+	c.mux.Unlock()
+	return nil
+
 }
 
 // LocalAddr implements LocalAddr
@@ -167,12 +179,12 @@ func (c *Conn) SetDeadline(t time.Time) error {
 		if !t.IsZero() {
 			now := time.Now()
 			if c.rTimer == nil {
-				c.rTimer = c.g.afterFunc(t.Sub(now), func() { c.closeWithError(errReadTimeout) })
+				c.rTimer = c.g.afterFunc(t.Sub(now), func() { c.CloseWithError(errReadTimeout) })
 			} else {
 				c.rTimer.Reset(t.Sub(now))
 			}
 			if c.wTimer == nil {
-				c.wTimer = c.g.afterFunc(t.Sub(now), func() { c.closeWithError(errWriteTimeout) })
+				c.wTimer = c.g.afterFunc(t.Sub(now), func() { c.CloseWithError(errWriteTimeout) })
 			} else {
 				c.wTimer.Reset(t.Sub(now))
 			}
@@ -198,7 +210,7 @@ func (c *Conn) SetReadDeadline(t time.Time) error {
 		if !t.IsZero() {
 			now := time.Now()
 			if c.rTimer == nil {
-				c.rTimer = c.g.afterFunc(t.Sub(now), func() { c.closeWithError(errReadTimeout) })
+				c.rTimer = c.g.afterFunc(t.Sub(now), func() { c.CloseWithError(errReadTimeout) })
 			} else {
 				c.rTimer.Reset(t.Sub(now))
 			}
@@ -218,7 +230,7 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 		if !t.IsZero() {
 			now := time.Now()
 			if c.wTimer == nil {
-				c.wTimer = c.g.afterFunc(t.Sub(now), func() { c.closeWithError(errWriteTimeout) })
+				c.wTimer = c.g.afterFunc(t.Sub(now), func() { c.CloseWithError(errWriteTimeout) })
 			} else {
 				c.wTimer.Reset(t.Sub(now))
 			}
